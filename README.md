@@ -259,17 +259,90 @@ TV/
 
 ## Deploying
 
-The app is deployed to **Cloudflare Pages** (free tier — no bandwidth charges).
+The app deploys to **Cloudflare Pages** (free tier — no bandwidth charges; the
+free plan throttles rather than bills, so you can't be surprised by a cost). The
+static site is served for free and the proxy runs as Cloudflare Pages Functions,
+free up to 100,000 requests/day.
+
+You can deploy either from the **command line** (fastest, no Git needed) or by
+**connecting a Git repository** (auto-deploys on every push). Both are covered
+below.
+
+### Prerequisites
+
+- A **Cloudflare account** — sign up free at
+  <https://dash.cloudflare.com/sign-up> (no credit card required).
+- Node 20 selected and dependencies installed (see
+  [Run it locally from scratch](#run-it-locally-from-scratch), steps 2–3).
+
+### Option A — Deploy from the command line (recommended)
+
+Run these from the project folder.
+
+**1. Log in to Cloudflare** (one-time per machine):
 
 ```bash
-npx wrangler login      # one-time; opens a browser to authorize
-npm run cf:deploy       # build + deploy
+npx wrangler login
 ```
 
-The first deploy creates the project; afterwards it updates the same production
-URL. Use the **production** URL it prints (e.g. `https://m3u8-streamer.pages.dev`),
-**not** the `<hash>.<project>.pages.dev` preview link (that deeper subdomain has a
-TLS certificate mismatch and won't load).
+This opens your browser — click **Allow** to authorize Wrangler, then return to
+the terminal. (On a headless machine with no browser, it prints a URL you can open
+anywhere to approve.)
+
+**2. (Optional) Choose your project name.** The project name becomes your URL
+(`https://<name>.pages.dev`) and must be unique within your account. It's read
+from `wrangler.toml`:
+
+```toml
+name = "m3u8-streamer"
+```
+
+Change `name` to whatever you want (lowercase letters, numbers, and hyphens).
+
+**3. Build and deploy:**
+
+```bash
+npm run cf:deploy
+```
+
+On the **first** deploy Wrangler will ask to create the project — confirm, and
+accept the production branch default. When it finishes it prints your live URL.
+
+**4. Open your site** at `https://<your-project-name>.pages.dev`.
+
+To publish future changes (new channels, code edits), just run `npm run cf:deploy`
+again — it updates the same URL in seconds.
+
+> **Use the production URL, not the preview link.** Each deploy also prints a
+> `https://<hash>.<your-project-name>.pages.dev` preview link. That deeper
+> subdomain isn't covered by Cloudflare's `*.pages.dev` certificate and will show
+> an SSL error (`ERR_SSL_VERSION_OR_CIPHER_MISMATCH`). Always use the plain
+> `https://<your-project-name>.pages.dev` — it stays the same across deploys.
+
+### Option B — Connect a Git repository (auto-deploy on push)
+
+If your project is in a GitHub/GitLab repo, Cloudflare can build and deploy it
+automatically on every push:
+
+1. Push this project to a GitHub or GitLab repository.
+2. In the Cloudflare dashboard go to **Workers & Pages → Create → Pages →
+   Connect to Git**, and select your repository.
+3. When asked for build settings, enter:
+   - **Framework preset:** `None` (or `Vite`)
+   - **Build command:** `npm run build`
+   - **Build output directory:** `dist`
+4. Click **Save and Deploy**. Cloudflare builds the site, deploys the
+   `functions/` directory as Pages Functions automatically, and gives you a
+   `https://<project>.pages.dev` URL. Every future `git push` redeploys.
+
+### After deploying
+
+- **Do not** set an `ALLOW_PRIVATE_HOSTS` environment variable in Cloudflare —
+  private/LAN hosts are unreachable from Cloudflare's servers and the guard should
+  stay on in production.
+- The deployed URL is **public** — anyone who has it can use your proxy against
+  your daily request budget. If that's a concern, add an auth gate before sharing
+  it widely.
 
 ---
 
