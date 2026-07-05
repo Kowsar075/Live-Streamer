@@ -25,16 +25,19 @@ TV/
 ├── index.html              # Vite entry
 ├── vite.config.ts          # React plugin + local /api proxy middleware (dev only)
 ├── vercel.json             # function maxDuration config
+├── public/
+│   └── channels.json       # channel list: [{ name, url }] — edit without rebuilding
 ├── src/                    # React + TS frontend
-│   ├── App.tsx
-│   ├── components/{UrlInput,Player}.tsx
-│   └── lib/buildProxyUrl.ts
+│   ├── App.tsx             # loads channels.json, renders channel grid + player
+│   ├── components/{UrlInput,Player,ChannelList}.tsx
+│   └── lib/{buildProxyUrl,channels}.ts
 └── api/                    # Vercel serverless functions (the proxy)
     ├── manifest.ts         # GET /api/manifest?u=<encoded origin URL>
     ├── segment.ts          # GET /api/segment?u=<encoded origin URL>
     └── _lib/               # shared core (underscore = not a route)
-        ├── handlers.ts     # getRewrittenManifest / getSegment (fetch + timeout)
+        ├── handlers.ts     # getRewrittenManifest / getSegment (fetch + timeout + net Happy Eyeballs)
         ├── rewrite.ts      # HLS manifest rewriting — the core & main bug surface
+        ├── headers.ts      # parse/allowlist the forwarded `h` header param
         └── security.ts     # SSRF guard (private-IP block), URL validation
 ```
 
@@ -60,7 +63,14 @@ npm run dev            # Vite dev server at http://localhost:5173, /api handled 
 npm run build          # tsc --noEmit typecheck, then vite build -> dist/
 npm run preview        # serve the production build locally (no /api — build is static only)
 npm run typecheck      # tsc --noEmit only
+
+# Import channels from an .m3u/.m3u8 playlist into public/channels.json
+node scripts/import-m3u.mjs <playlist.m3u>            # merge, skip duplicate URLs
+node scripts/import-m3u.mjs <playlist.m3u> --replace  # overwrite the list
 ```
+
+`scripts/import-m3u.mjs` maps `#EXTINF` names + `#EXTVLCOPT`/`#EXTHTTP` (user-agent/referrer/
+cookie) into channel objects with the `headers` field.
 
 - **`npm run dev` is full-stack**: `vite.config.ts` installs a middleware that serves
   `/api/manifest` and `/api/segment` by calling the **same** `api/_lib/handlers.ts` Vercel uses.
@@ -92,6 +102,16 @@ npm run typecheck      # tsc --noEmit only
   DNS-rebinding defense) — fine for a personal tool.
 - **Segment streaming** uses `Readable.fromWeb(resp.body).pipe(res)` — never buffer whole
   segments. Manifests use `Cache-Control: no-store`; segments `public, max-age=30`.
+- **Per-channel forwarded headers.** A channel in `channels.json` may include a `headers` map
+  (e.g. `User-Agent`, `Cookie` for token-signed IPTV origins like Toffee/Google Edge Cache).
+  The browser can't set those, so the frontend passes them JSON-encoded in the `h` query param;
+  the proxy applies them to the origin fetch and `rewrite.ts` propagates `h` onto every rewritten
+  variant/segment URL so the whole chain is authenticated. `headers.ts` only forwards an
+  allowlist (`user-agent`, `cookie`, `referer`, `origin`).
+- **Dual-stack IPv6 hang:** many IPTV origins publish A+AAAA but are IPv4-only reachable; without
+  Happy Eyeballs Node's fetch hangs → `fetch failed`. `handlers.ts` calls
+  `net.setDefaultAutoSelectFamily(true)` at load to fix this. Symptom to recognize: curl works,
+  proxy returns 502 "fetch failed" (ETIMEDOUT).
 
 ---
 

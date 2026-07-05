@@ -5,8 +5,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getRewrittenManifest, getSegment } from './api/_lib/handlers';
 import { ProxyError } from './api/_lib/security';
 
-function readU(req: IncomingMessage): string | undefined {
-  return new URL(req.url ?? '', 'http://localhost').searchParams.get('u') ?? undefined;
+function readParam(req: IncomingMessage, name: string): string | undefined {
+  return new URL(req.url ?? '', 'http://localhost').searchParams.get(name) ?? undefined;
 }
 
 // Serves /api/manifest and /api/segment locally using the SAME handlers Vercel
@@ -20,14 +20,20 @@ function localProxyApi(): Plugin {
         res.setHeader('Access-Control-Allow-Origin', '*');
         try {
           if (path === '/api/manifest') {
-            const { contentType, body } = await getRewrittenManifest(readU(req));
+            const { contentType, body } = await getRewrittenManifest(
+              readParam(req, 'u'),
+              readParam(req, 'h'),
+            );
             res.setHeader('Content-Type', contentType);
             res.setHeader('Cache-Control', 'no-store');
             res.end(body);
             return;
           }
           if (path === '/api/segment') {
-            const { status, headers, body } = await getSegment(readU(req));
+            const { status, headers, body } = await getSegment(
+              readParam(req, 'u'),
+              readParam(req, 'h'),
+            );
             for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
             res.statusCode = status;
             if (body) Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);

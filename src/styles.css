@@ -22,7 +22,7 @@ body {
 }
 
 .app {
-  max-width: 900px;
+  max-width: 1040px;
   margin: 0 auto;
   padding: 2.5rem 1.25rem 4rem;
 }
@@ -35,6 +35,177 @@ h1 {
 .subtitle {
   margin: 0 0 1.75rem;
   color: var(--muted);
+}
+
+h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.channels-section,
+.manual-section,
+.now-playing {
+  margin-top: 2rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.channels-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.channels-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+}
+
+/* Search */
+.search {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-clear {
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Channel grid — 5 columns on desktop, fewer as the viewport narrows. */
+.channels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 600px) {
+  .channels {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .channels {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.channels li {
+  min-width: 0; /* let 1fr tracks shrink instead of overflowing on long text */
+}
+
+.channel {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 3.25rem;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.channel:hover {
+  border-color: var(--accent);
+}
+
+.channel-active {
+  border-color: var(--accent);
+  background: #1e2740;
+}
+
+.channel-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channels-empty {
+  color: var(--muted);
+}
+
+/* Pagination */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.pager-btn {
+  width: 2.4rem;
+  height: 2.4rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+  line-height: 1;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pager-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.pager-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pager-status {
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-width: 8rem;
+  text-align: center;
 }
 
 .url-input {

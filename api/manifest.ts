@@ -9,7 +9,10 @@ function firstParam(v: string | string[] | undefined): string | undefined {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
-    const { contentType, body } = await getRewrittenManifest(firstParam(req.query.u));
+    const { contentType, body } = await getRewrittenManifest(
+      firstParam(req.query.u),
+      firstParam(req.query.h),
+    );
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(body);

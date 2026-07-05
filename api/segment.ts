@@ -10,7 +10,10 @@ function firstParam(v: string | string[] | undefined): string | undefined {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   try {
-    const { status, headers, body } = await getSegment(firstParam(req.query.u));
+    const { status, headers, body } = await getSegment(
+      firstParam(req.query.u),
+      firstParam(req.query.h),
+    );
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
     res.status(status);
     if (body) {

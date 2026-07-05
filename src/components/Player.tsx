@@ -7,7 +7,12 @@ type Status =
   | { kind: 'playing' }
   | { kind: 'error'; message: string };
 
-export function Player({ url }: { url: string }) {
+interface Props {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export function Player({ url, headers }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
 
@@ -15,7 +20,7 @@ export function Player({ url }: { url: string }) {
     const video = videoRef.current;
     if (!video) return;
 
-    const src = buildManifestUrl(url);
+    const src = buildManifestUrl(url, headers);
     setStatus({ kind: 'loading' });
     let hls: Hls | null = null;
 

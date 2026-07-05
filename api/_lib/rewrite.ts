@@ -4,9 +4,15 @@
 
 type Route = 'manifest' | 'segment';
 
-/** Build the proxied path for an absolute origin URL. */
-export function proxyPath(absUrl: string, route: Route): string {
-  return `/api/${route}?u=${encodeURIComponent(absUrl)}`;
+/**
+ * Build the proxied path for an absolute origin URL. `headersParam` is the
+ * already-encoded value of the `h` query param (custom forward headers); when
+ * present it is carried onto every rewritten URL so segment/variant fetches
+ * send the same headers (e.g. a signed Cookie) the manifest fetch used.
+ */
+export function proxyPath(absUrl: string, route: Route, headersParam: string): string {
+  const h = headersParam ? `&h=${headersParam}` : '';
+  return `/api/${route}?u=${encodeURIComponent(absUrl)}${h}`;
 }
 
 /** A referenced URL is a (variant) playlist if its path ends in .m3u8/.m3u. */
@@ -28,19 +34,19 @@ function resolve(ref: string, base: string): string {
   return new URL(ref, base).toString();
 }
 
-/** Rewrite the URI="..." attribute inside a directive line (KEY, MEDIA, MAP...). */
-function rewriteUriAttr(line: string, base: string, route: Route): string {
-  return line.replace(/URI="([^"]*)"/i, (_m, uri: string) => {
-    const abs = resolve(uri, base);
-    return `URI="${proxyPath(abs, route)}"`;
-  });
-}
-
 /**
  * Rewrite a full manifest body. `manifestUrl` must be the absolute URL the
  * manifest was fetched from (after redirects), so relative refs resolve right.
+ * `headersParam` is the encoded `h` value to propagate (empty string if none).
  */
-export function rewriteManifest(body: string, manifestUrl: string): string {
+export function rewriteManifest(body: string, manifestUrl: string, headersParam = ''): string {
+  // Rewrite the URI="..." attribute inside a directive line (KEY, MEDIA, MAP...).
+  const rewriteUriAttr = (line: string, route: Route): string =>
+    line.replace(/URI="([^"]*)"/i, (_m, uri: string) => {
+      const abs = resolve(uri, manifestUrl);
+      return `URI="${proxyPath(abs, route, headersParam)}"`;
+    });
+
   const out: string[] = [];
 
   for (const line of body.split(/\r?\n/)) {
@@ -59,7 +65,7 @@ export function rewriteManifest(body: string, manifestUrl: string): string {
         upper.startsWith('#EXT-X-SESSION-KEY') ||
         upper.startsWith('#EXT-X-MAP')
       ) {
-        out.push(rewriteUriAttr(line, manifestUrl, 'segment'));
+        out.push(rewriteUriAttr(line, 'segment'));
       }
       // Alt renditions, I-frame streams, rendition reports -> playlists.
       else if (
@@ -67,11 +73,11 @@ export function rewriteManifest(body: string, manifestUrl: string): string {
         upper.startsWith('#EXT-X-I-FRAME-STREAM-INF') ||
         upper.startsWith('#EXT-X-RENDITION-REPORT')
       ) {
-        out.push(rewriteUriAttr(line, manifestUrl, 'manifest'));
+        out.push(rewriteUriAttr(line, 'manifest'));
       }
       // Any other directive carrying a URI (LL-HLS parts/preload hints) -> segment.
       else if (/URI="/i.test(line)) {
-        out.push(rewriteUriAttr(line, manifestUrl, 'segment'));
+        out.push(rewriteUriAttr(line, 'segment'));
       } else {
         out.push(line);
       }
@@ -80,7 +86,7 @@ export function rewriteManifest(body: string, manifestUrl: string): string {
 
     // A bare URL line: variant playlist (master) or media segment.
     const abs = resolve(trimmed, manifestUrl);
-    out.push(proxyPath(abs, isPlaylistUrl(abs) ? 'manifest' : 'segment'));
+    out.push(proxyPath(abs, isPlaylistUrl(abs) ? 'manifest' : 'segment', headersParam));
   }
 
   return out.join('\n');
