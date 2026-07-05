@@ -6,31 +6,21 @@ import net from 'node:net';
 import { validateTargetUrl, ProxyError } from './security';
 import { rewriteManifest } from './rewrite';
 import { parseForwardHeaders } from './headers';
+import { buildHeaders, guessContentType } from './http';
 
 // Many IPTV origins are dual-stack (publish both A and AAAA records) but are
 // only actually reachable over IPv4. Without Happy Eyeballs, Node's fetch picks
 // the IPv6 address, can't route to it, and hangs until ETIMEDOUT ("fetch
 // failed"). Enabling autoSelectFamily makes it race both families and fall back
 // to IPv4 in ~500ms. Uses node:net so no external dependency is needed.
+// (Not needed on Cloudflare's edge — that runtime doesn't have this problem.)
 net.setDefaultAutoSelectFamily(true);
 net.setDefaultAutoSelectFamilyAttemptTimeout(500);
 
 const MANIFEST_TIMEOUT_MS = 15_000;
 const SEGMENT_TIMEOUT_MS = 30_000;
 
-// Some IPTV origins reject requests without a browser-ish UA.
-const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (compatible; m3u8-web-streamer proxy; +https://github.com)';
-
-/** Merge default headers with the caller's forwarded ones (custom wins). */
-function buildHeaders(custom: Record<string, string>): Headers {
-  const headers = new Headers();
-  headers.set('User-Agent', DEFAULT_USER_AGENT);
-  headers.set('Accept', '*/*');
-  // Headers.set is case-insensitive, so a custom User-Agent overrides the default.
-  for (const [key, value] of Object.entries(custom)) headers.set(key, value);
-  return headers;
-}
+const allowPrivateHosts = process.env.ALLOW_PRIVATE_HOSTS === 'true';
 
 async function fetchWithTimeout(
   url: string,
@@ -59,7 +49,7 @@ export async function getRewrittenManifest(
   rawUrl: string | undefined,
   rawHeaders?: string,
 ): Promise<ManifestResult> {
-  const url = validateTargetUrl(rawUrl);
+  const url = validateTargetUrl(rawUrl, allowPrivateHosts);
   const custom = parseForwardHeaders(rawHeaders);
 
   let resp: Response;
@@ -90,20 +80,11 @@ export interface SegmentResult {
   body: ReadableStream<Uint8Array> | null;
 }
 
-function guessContentType(pathname: string): string {
-  const p = pathname.toLowerCase();
-  if (p.endsWith('.ts')) return 'video/MP2T';
-  if (p.endsWith('.aac')) return 'audio/aac';
-  if (p.endsWith('.mp4') || p.endsWith('.m4s')) return 'video/mp4';
-  if (p.endsWith('.vtt')) return 'text/vtt';
-  return 'application/octet-stream';
-}
-
 export async function getSegment(
   rawUrl: string | undefined,
   rawHeaders?: string,
 ): Promise<SegmentResult> {
-  const url = validateTargetUrl(rawUrl);
+  const url = validateTargetUrl(rawUrl, allowPrivateHosts);
   const custom = parseForwardHeaders(rawHeaders);
 
   let resp: Response;

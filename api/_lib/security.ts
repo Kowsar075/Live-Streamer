@@ -59,7 +59,7 @@ function isPrivateHost(hostname: string): boolean {
  * acceptable gap for a personal tool; harden with DNS resolution if this ever
  * goes multi-tenant.
  */
-export function validateTargetUrl(raw: string | undefined): URL {
+export function validateTargetUrl(raw: string | undefined, allowPrivate = false): URL {
   if (!raw) throw new ProxyError(400, 'Missing required "u" query parameter.');
 
   let url: URL;
@@ -73,7 +73,6 @@ export function validateTargetUrl(raw: string | undefined): URL {
     throw new ProxyError(400, `Unsupported protocol: ${url.protocol}`);
   }
 
-  const allowPrivate = process.env.ALLOW_PRIVATE_HOSTS === 'true';
   if (!allowPrivate && isPrivateHost(url.hostname)) {
     throw new ProxyError(
       403,

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "//": "Only functions/ files; tsc follows their imports into the pure api/_lib modules. handlers.ts (Node-only) is not imported here and stays out.",
+  "include": ["**/*.ts"]
+}

@@ -4,52 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Deployment target: Vercel, not Firebase (IMPORTANT)
+## Deployment target: Cloudflare Pages (IMPORTANT — not Firebase, not Vercel)
 
-The original design doc below (§0–§12) assumes **Firebase**, but the project was
-**deliberately switched to Vercel** because the user wants everything free. Firebase Cloud
-Functions require the paid **Blaze** plan to make outbound `fetch()` to non-Google hosts;
-**Vercel serverless functions do outbound fetch on the free Hobby tier** (no credit card).
+The design doc below (§0–§12) assumes **Firebase**; the project was later moved to **Vercel**
+and is now on **Cloudflare Pages + Pages Functions**. Reason: the user wants it free *no matter
+the traffic*. Cloudflare charges **$0 for egress/bandwidth** and the free plan **throttles rather
+than bills** (100k function requests/day; static assets unlimited). Firebase needs paid Blaze;
+Vercel/Netlify bill past a bandwidth cap.
 
-So: **ignore the Firebase-specific mechanics** in §3 (Blaze), §4.3 (Hosting rewrites), and §8
-(firebase init/deploy). **Everything else in the design doc still applies** — the architecture
-(§2), the manifest-rewrite rules (§4.2), the security guards (§5), and the testing checklist
-(§12) are all implemented as described, just on Vercel primitives.
+So: **ignore Firebase mechanics** in §3/§4.3/§8. The architecture (§2), manifest-rewrite rules
+(§4.2), security guards (§5), and testing checklist (§12) all still apply — implemented on
+Cloudflare primitives.
 
 ## Current state — scaffolded and verified working
-
-The app is built and runs. Structure (differs from §9's Firebase layout):
 
 ```
 TV/
 ├── index.html              # Vite entry
-├── vite.config.ts          # React plugin + local /api proxy middleware (dev only)
-├── vercel.json             # function maxDuration config
+├── vite.config.ts          # React plugin + local /api proxy middleware (dev only, Node)
+├── wrangler.toml           # Cloudflare Pages config (pages_build_output_dir = dist)
 ├── public/
-│   └── channels.json       # channel list: [{ name, url }] — edit without rebuilding
+│   └── channels.json       # channel list: [{ name, url, headers? }] — edit without rebuilding
+├── scripts/import-m3u.mjs  # import .m3u playlists into channels.json
 ├── src/                    # React + TS frontend
-│   ├── App.tsx             # loads channels.json, renders channel grid + player
+│   ├── App.tsx             # loads channels.json; search + 5x3 paginated grid + player
 │   ├── components/{UrlInput,Player,ChannelList}.tsx
 │   └── lib/{buildProxyUrl,channels}.ts
-└── api/                    # Vercel serverless functions (the proxy)
-    ├── manifest.ts         # GET /api/manifest?u=<encoded origin URL>
-    ├── segment.ts          # GET /api/segment?u=<encoded origin URL>
-    └── _lib/               # shared core (underscore = not a route)
-        ├── handlers.ts     # getRewrittenManifest / getSegment (fetch + timeout + net Happy Eyeballs)
-        ├── rewrite.ts      # HLS manifest rewriting — the core & main bug surface
-        ├── headers.ts      # parse/allowlist the forwarded `h` header param
-        └── security.ts     # SSRF guard (private-IP block), URL validation
+├── functions/              # Cloudflare Pages Functions (the DEPLOYED proxy — Workers runtime)
+│   ├── tsconfig.json       # workers-types; editor typecheck only
+│   └── api/{manifest,segment}.ts   # onRequestGet handlers -> /api/manifest, /api/segment
+└── api/_lib/               # shared PURE core, imported by BOTH functions/ and the Vite dev middleware
+    ├── rewrite.ts          # HLS manifest rewriting — the core & main bug surface
+    ├── headers.ts          # parse/allowlist the forwarded `h` header param
+    ├── http.ts             # buildHeaders / guessContentType (portable, web-standard)
+    ├── security.ts         # validateTargetUrl(raw, allowPrivate) — SSRF guard
+    └── handlers.ts         # NODE-ONLY (node:net Happy Eyeballs); used ONLY by Vite dev middleware
 ```
 
-Verified end-to-end against `https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8`: master →
-variant → segment rewriting all correct, segments stream through, and private-IP URLs are
-rejected 403.
+Two runtimes share one core:
+- **Deployed proxy** = `functions/api/*.ts` on the **Workers runtime** (web APIs only; segment =
+  `new Response(originResp.body)`). Must NOT import `handlers.ts` (it's Node).
+- **Local dev proxy** = the Vite middleware in `vite.config.ts`, which calls the Node
+  `handlers.ts`. This is what `npm run dev` uses.
+- Both import the pure modules (`rewrite`, `headers`, `http`, `security`). `validateTargetUrl`
+  takes `allowPrivate` as a param because Workers has no `process.env`.
+
+Verified via `wrangler pages dev` (real Workers runtime) and `npm run dev`: master → variant →
+segment rewrite, segment streaming, forwarded-header auth, and private-IP 403 all work.
 
 ## Node version
 
 **Local Node is v17 by default, which is too old.** This project needs Node 20 (pinned in
-`.nvmrc`, matches Vercel's runtime). nvm is installed but not auto-loaded in non-interactive
-shells. Prefix commands with:
+`.nvmrc`). nvm is installed but not auto-loaded in non-interactive shells. Prefix commands with:
 
 ```bash
 export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 20
@@ -62,7 +68,10 @@ npm install            # deps (Node 20)
 npm run dev            # Vite dev server at http://localhost:5173, /api handled by vite middleware
 npm run build          # tsc --noEmit typecheck, then vite build -> dist/
 npm run preview        # serve the production build locally (no /api — build is static only)
-npm run typecheck      # tsc --noEmit only
+npm run typecheck      # tsc --noEmit only (checks src + api/_lib; not functions/)
+
+npm run cf:dev         # build, then wrangler pages dev — real Workers runtime locally
+npm run cf:deploy      # build, then wrangler pages deploy — deploy to Cloudflare Pages
 
 # Import channels from an .m3u/.m3u8 playlist into public/channels.json
 node scripts/import-m3u.mjs <playlist.m3u>            # merge, skip duplicate URLs
@@ -72,15 +81,15 @@ node scripts/import-m3u.mjs <playlist.m3u> --replace  # overwrite the list
 `scripts/import-m3u.mjs` maps `#EXTINF` names + `#EXTVLCOPT`/`#EXTHTTP` (user-agent/referrer/
 cookie) into channel objects with the `headers` field.
 
-- **`npm run dev` is full-stack**: `vite.config.ts` installs a middleware that serves
-  `/api/manifest` and `/api/segment` by calling the **same** `api/_lib/handlers.ts` Vercel uses.
-  No Vercel account/CLI needed to develop. (`npm run preview` serves static files only — the
-  proxy won't respond there; use `vercel dev` if you need the real functions locally.)
-- **LAN testing**: the SSRF guard blocks private IPs by default. To play a `192.168.x`/LAN
-  origin during local dev, set `ALLOW_PRIVATE_HOSTS=true` in the env before `npm run dev`.
-- **Deploy** (free): push to a Git repo and import in the Vercel dashboard, or `npx vercel`.
-  Vercel auto-detects Vite (build `vite build`, output `dist/`) and deploys `api/*.ts` as
-  functions. Do NOT set `ALLOW_PRIVATE_HOSTS` in production.
+- **`npm run dev` is full-stack**: `vite.config.ts` serves `/api/manifest` + `/api/segment` via
+  the Node `handlers.ts`. No Cloudflare account/CLI needed for everyday development.
+- **`npm run cf:dev`** runs the *actual deployed* Workers functions locally (miniflare) against
+  the built `dist/` — use it to verify a change behaves the same on Cloudflare before deploying.
+- **LAN testing**: the SSRF guard blocks private IPs by default. For a `192.168.x`/LAN origin in
+  local dev, set `ALLOW_PRIVATE_HOSTS=true` before `npm run dev` (never set it in production).
+- **Deploy**: `npx wrangler login` once, then `npm run cf:deploy`. First deploy creates the Pages
+  project (name from `wrangler.toml`). Or connect a Git repo in the Cloudflare dashboard with
+  build command `npm run build` and output dir `dist`. Free plan limit: 100k function req/day.
 
 ## Key architectural facts
 
@@ -89,19 +98,18 @@ cookie) into channel objects with the `headers` field.
   preserves query tokens before re-encoding. Master-playlist variant URLs and `#EXT-X-MEDIA`/
   I-frame/rendition-report URIs route to `/api/manifest`; segments, `#EXT-X-KEY`, `#EXT-X-MAP`,
   and LL-HLS parts route to `/api/segment`.
-- **One shared core, two callers.** `api/manifest.ts` + `api/segment.ts` (Vercel) and the Vite
-  dev middleware are thin adapters over `api/_lib/handlers.ts`. Put proxy logic in `_lib`, never
-  duplicate it in an adapter.
-- **`_lib/` is underscore-prefixed on purpose** — Vercel routes every file under `api/` as an
-  endpoint except underscore-prefixed ones. Don't rename it without moving the shared code out
-  of `api/`.
+- **One shared core, two runtimes.** The deployed Workers functions (`functions/api/*.ts`) and
+  the Node Vite dev middleware are thin adapters over the pure `api/_lib` modules. Put proxy
+  logic in `_lib`, never duplicate it in an adapter. Keep `_lib` free of Node-only imports EXCEPT
+  `handlers.ts`, which is Node-only by design and must not be imported by `functions/`.
 - **Security implemented:** `security.ts` blocks private/loopback/link-local/CGNAT IPv4+IPv6 and
   cloud-metadata (169.254.169.254), and rejects non-http(s) schemes. Not yet implemented from §5:
   auth on the proxy and rate limiting — add these before sharing the deployed URL publicly, or
-  it's an open bandwidth-costing proxy. Note the guard checks the literal host only (no
-  DNS-rebinding defense) — fine for a personal tool.
-- **Segment streaming** uses `Readable.fromWeb(resp.body).pipe(res)` — never buffer whole
-  segments. Manifests use `Cache-Control: no-store`; segments `public, max-age=30`.
+  it's an open proxy (on Cloudflare that burns the 100k/day request budget). The guard checks the
+  literal host only (no DNS-rebinding defense) — fine for a personal tool.
+- **Segment streaming**: Workers = `new Response(originResp.body)`; Node dev =
+  `Readable.fromWeb(resp.body).pipe(res)`. Never buffer whole segments. Manifests use
+  `Cache-Control: no-store`; segments `public, max-age=30`.
 - **Per-channel forwarded headers.** A channel in `channels.json` may include a `headers` map
   (e.g. `User-Agent`, `Cookie` for token-signed IPTV origins like Toffee/Google Edge Cache).
   The browser can't set those, so the frontend passes them JSON-encoded in the `h` query param;
