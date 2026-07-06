@@ -6,6 +6,7 @@ import { validateTargetUrl, ProxyError } from '../../api/_lib/security';
 import { rewriteManifest } from '../../api/_lib/rewrite';
 import { parseForwardHeaders } from '../../api/_lib/headers';
 import { buildHeaders } from '../../api/_lib/http';
+import { originFetch } from '../_lib/socketFetch';
 
 interface Env {
   ALLOW_PRIVATE_HOSTS?: string;
@@ -24,16 +25,17 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const rawHeaders = params.get('h') ?? undefined;
     const custom = parseForwardHeaders(rawHeaders);
 
-    const resp = await fetch(target.toString(), {
-      headers: buildHeaders(custom),
-      redirect: 'follow',
-      signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS),
-    });
+    // `fetch` can't reach non-standard ports on the Workers runtime; originFetch
+    // transparently uses a raw socket for those and plain fetch for 80/443.
+    const { response: resp, finalUrl } = await originFetch(
+      target,
+      buildHeaders(custom),
+      MANIFEST_TIMEOUT_MS,
+    );
     if (!resp.ok) {
       throw new ProxyError(502, `Origin returned HTTP ${resp.status} for the manifest.`);
     }
 
-    const finalUrl = resp.url || target.toString();
     const headersParam = rawHeaders ? encodeURIComponent(rawHeaders) : '';
     const body = rewriteManifest(await resp.text(), finalUrl, headersParam);
 

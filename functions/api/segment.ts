@@ -5,6 +5,7 @@
 import { validateTargetUrl, ProxyError } from '../../api/_lib/security';
 import { parseForwardHeaders } from '../../api/_lib/headers';
 import { buildHeaders, guessContentType } from '../../api/_lib/http';
+import { originFetch } from '../_lib/socketFetch';
 
 interface Env {
   ALLOW_PRIVATE_HOSTS?: string;
@@ -21,11 +22,12 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     );
     const custom = parseForwardHeaders(params.get('h') ?? undefined);
 
-    const resp = await fetch(target.toString(), {
-      headers: buildHeaders(custom),
-      redirect: 'follow',
-      signal: AbortSignal.timeout(SEGMENT_TIMEOUT_MS),
-    });
+    // Custom-port origins are reached over a raw socket (fetch drops the port).
+    const { response: resp } = await originFetch(
+      target,
+      buildHeaders(custom),
+      SEGMENT_TIMEOUT_MS,
+    );
     if (!resp.ok && resp.status !== 206) {
       throw new ProxyError(502, `Origin returned HTTP ${resp.status} for a segment.`);
     }

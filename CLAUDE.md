@@ -107,6 +107,16 @@ cookie) into channel objects with the `headers` field.
   auth on the proxy and rate limiting — add these before sharing the deployed URL publicly, or
   it's an open proxy (on Cloudflare that burns the 100k/day request budget). The guard checks the
   literal host only (no DNS-rebinding defense) — fine for a personal tool.
+- **Custom origin ports need a raw socket on Cloudflare.** On the deployed Workers
+  runtime, `fetch()` only connects on ports 80/443 — it *silently drops* any other port and
+  hits the scheme default. So an origin like `http://1.2.3.4:8097/...` is unreachable via
+  fetch (VLC and `npm run dev`/Node fetch work because they honor the port; symptom is
+  `manifestLoadError` only on the deployed site). Fix: `functions/_lib/socketFetch.ts` — a
+  Workers-only HTTP/1.1 client over `cloudflare:sockets`. `originFetch()` there routes
+  non-80/443 targets through the socket (handles redirects, chunked + content-length framing,
+  streams the body) and everything else through normal `fetch`. Both `functions/api/*.ts`
+  call `originFetch`. This file is Workers-only (imports `cloudflare:sockets`) — never import
+  it from the Node dev middleware or `api/_lib`; Node dev already honors ports via its fetch.
 - **Segment streaming**: Workers = `new Response(originResp.body)`; Node dev =
   `Readable.fromWeb(resp.body).pipe(res)`. Never buffer whole segments. Manifests use
   `Cache-Control: no-store`; segments `public, max-age=30`.
